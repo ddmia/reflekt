@@ -1,0 +1,7 @@
+body { font-family: system-ui, sans-serif; padding: 16px; }
+.app .main { display:flex; gap:16px }
+.left { flex: 1 }
+.right { width: 320px }
+.card { border: 1px solid #ddd; padding: 8px; margin-bottom:8px; border-radius:6px }
+.task-form { display:flex; gap:8px; margin-bottom:12px }
+.task-form input { padding:6px }

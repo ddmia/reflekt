@@ -1,3 +1,26 @@
+# Reflekt — Tasks (monorepo)
+
+Monorepo with `backend` (Express + SQLite) and `frontend` (Vite + React).
+
+Quick start:
+
+Backend:
+
+```powershell
+cd backend
+npm install
+npm run dev
+```
+
+Frontend:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+API base: `http://localhost:3001/api/v1`
 Task Manager (TypeScript)
 
 This workspace contains a minimal TypeScript task manager split into `server` (Express API) and `client` (React + Vite).
