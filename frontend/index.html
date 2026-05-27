@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Gestão de Tarefas</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;display:flex;height:100vh}
+    .list{width:40%;border-right:1px solid #ddd;padding:16px;overflow:auto}
+    .detail{flex:1;padding:16px;overflow:auto}
+    .card{border:1px solid #ccc;padding:8px;margin-bottom:8px;cursor:pointer}
+    .controls{display:flex;gap:8px;margin-bottom:8px}
+    .tags{font-size:12px;color:#555}
+    .notes{margin-top:12px}
+    .note{border:1px dashed #aaa;padding:8px;margin-bottom:6px}
+    form{display:flex;flex-direction:column;gap:6px}
+    input,select,textarea{padding:6px}
+    .filters{display:flex;gap:6px;margin-bottom:12px}
+  </style>
+</head>
+<body>
+  <div class="list">
+    <h2>Tarefas</h2>
+    <div class="filters">
+      <select id="filterStatus"><option value="">Todos</option><option>TODO</option><option>IN_PROGRESS</option><option>DONE</option></select>
+      <select id="filterPriority"><option value="">Qualquer prioridade</option><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>URGENT</option></select>
+      <input id="filterTag" placeholder="tag" />
+      <button id="btnFilter">Filtrar</button>
+      <button id="btnClear">Limpar</button>
+    </div>
+
+    <div id="taskList"></div>
+
+    <h3>Criar Tarefa</h3>
+    <form id="createTaskForm">
+      <input name="title" placeholder="Título" required />
+      <textarea name="description" placeholder="Descrição"></textarea>
+      <select name="priority">
+        <option value="LOW">LOW</option>
+        <option value="MEDIUM">MEDIUM</option>
+        <option value="HIGH">HIGH</option>
+        <option value="URGENT">URGENT</option>
+      </select>
+      <input name="tags" placeholder="tags separadas por vírgula" />
+      <button type="submit">Criar</button>
+    </form>
+  </div>
+
+  <div class="detail">
+    <h2 id="detailTitle">Selecione uma tarefa</h2>
+    <div id="detailBody"></div>
+  </div>
+
+  <script>
+  // === CONFIG ===
+  const API = 'http://localhost:3001/api/v1';
+
+  // === API CLIENT ===
+  async function getTasks(filters = {}){
+    const qs = new URLSearchParams();
+    if (filters.status) qs.set('status', filters.status);
+    if (filters.priority) qs.set('priority', filters.priority);
+    if (filters.tag) qs.set('tag', filters.tag);
+    const res = await fetch(`${API}/tasks?${qs.toString()}`);
+    return res.json();
+  }
+  async function createTask(data){
+    const res = await fetch(`${API}/tasks`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    return res.json();
+  }
+  async function updateTask(id,data){
+    const res = await fetch(`${API}/tasks/${id}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    return res.json();
+  }
+  async function deleteTask(id){
+    await fetch(`${API}/tasks/${id}`, {method:'DELETE'});
+  }
+
+  async function getNotes(taskId){
+    const res = await fetch(`${API}/tasks/${taskId}/notes`);
+    return res.json();
+  }
+  async function createNote(taskId,data){
+    const res = await fetch(`${API}/tasks/${taskId}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    return res.json();
+  }
+  async function updateNote(taskId,id,data){
+    const res = await fetch(`${API}/tasks/${taskId}/notes/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    return res.json();
+  }
+  async function deleteNote(taskId,id){
+    await fetch(`${API}/tasks/${taskId}/notes/${id}`,{method:'DELETE'});
+  }
+
+  // === RENDER ===
+  const taskListEl = document.getElementById('taskList');
+  const detailTitle = document.getElementById('detailTitle');
+  const detailBody = document.getElementById('detailBody');
+
+  let currentTasks = [];
+  let selectedTask = null;
+
+  function renderTaskList(tasks){
+    currentTasks = tasks;
+    taskListEl.innerHTML = '';
+    tasks.forEach(t => {
+      const div = document.createElement('div');
+      div.className = 'card';
+      div.innerHTML = `<strong>${t.title}</strong> <div class="tags">${t.tags?.join(', ') || ''}</div><div>Status: ${t.status} • Priority: ${t.priority}</div>`;
+      div.addEventListener('click', async ()=>{
+        selectedTask = t;
+        await renderTaskDetail(t);
+      });
+      taskListEl.appendChild(div);
+    });
+  }
+
+  async function renderTaskDetail(task){
+    detailTitle.textContent = task.title;
+    const notes = await getNotes(task.id);
+    detailBody.innerHTML = '';
+
+    const info = document.createElement('div');
+    info.innerHTML = `
+      <p>${task.description || ''}</p>
+      <p>Status: ${task.status}</p>
+      <p>Priority: ${task.priority}</p>
+      <p>Tags: ${task.tags?.join(', ') || ''}</p>
+      <div class="controls">
+        <button id="editTaskBtn">Editar</button>
+        <button id="deleteTaskBtn">Excluir</button>
+      </div>
+    `;
+    detailBody.appendChild(info);
+
+    document.getElementById('deleteTaskBtn').addEventListener('click', async ()=>{
+      if(!confirm('Excluir tarefa?')) return;
+      await deleteTask(task.id);
+      await refresh();
+      detailTitle.textContent = 'Selecione uma tarefa';
+      detailBody.innerHTML = '';
+    });
+
+    document.getElementById('editTaskBtn').addEventListener('click', ()=>{
+      showEditTaskForm(task);
+    });
+
+    // notes
+    const notesDiv = document.createElement('div');
+    notesDiv.className = 'notes';
+    notesDiv.innerHTML = '<h4>Notas</h4>';
+    const list = document.createElement('div');
+    notes.forEach(n=>{
+      const nd = document.createElement('div'); nd.className='note';
+      nd.innerHTML = `<div>${n.content}</div><div style="margin-top:6px"><button data-id="${n.id}" class="editNote">Editar</button> <button data-id="${n.id}" class="delNote">Excluir</button></div>`;
+      list.appendChild(nd);
+    });
+    notesDiv.appendChild(list);
+
+    const form = document.createElement('form');
+    form.innerHTML = '<textarea name="content" placeholder="Nova nota"></textarea><button type="submit">Adicionar nota</button>';
+    form.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const content = form.elements['content'].value.trim();
+      if(!content) return alert('content é obrigatório');
+      await createNote(task.id,{content});
+      await renderTaskDetail(await fetchTask(task.id));
+      await refresh();
+    });
+    notesDiv.appendChild(form);
+
+    detailBody.appendChild(notesDiv);
+
+    // attach note handlers
+    list.querySelectorAll('.delNote').forEach(btn=>{
+      btn.addEventListener('click', async (ev)=>{
+        const id = Number(ev.currentTarget.getAttribute('data-id'));
+        if(!confirm('Excluir nota?')) return;
+        await deleteNote(task.id,id);
+        await renderTaskDetail(await fetchTask(task.id));
+        await refresh();
+      });
+    });
+
+    list.querySelectorAll('.editNote').forEach(btn=>{
+      btn.addEventListener('click', async (ev)=>{
+        const id = Number(ev.currentTarget.getAttribute('data-id'));
+        const content = prompt('Editar nota', '');
+        if(content===null) return;
+        if(!content.trim()) return alert('content é obrigatório');
+        await updateNote(task.id,id,{content});
+        await renderTaskDetail(await fetchTask(task.id));
+        await refresh();
+      });
+    });
+  }
+
+  async function fetchTask(id){
+    const res = await fetch(`${API}/tasks/${id}`);
+    return res.json();
+  }
+
+  function showEditTaskForm(task){
+    detailBody.innerHTML = '';
+    const form = document.createElement('form');
+    form.innerHTML = `
+      <input name="title" value="${task.title}" required />
+      <textarea name="description">${task.description || ''}</textarea>
+      <select name="status">
+        <option ${task.status==='TODO'?'selected':''}>TODO</option>
+        <option ${task.status==='IN_PROGRESS'?'selected':''}>IN_PROGRESS</option>
+        <option ${task.status==='DONE'?'selected':''}>DONE</option>
+      </select>
+      <select name="priority">
+        <option ${task.priority==='LOW'?'selected':''}>LOW</option>
+        <option ${task.priority==='MEDIUM'?'selected':''}>MEDIUM</option>
+        <option ${task.priority==='HIGH'?'selected':''}>HIGH</option>
+        <option ${task.priority==='URGENT'?'selected':''}>URGENT</option>
+      </select>
+      <input name="tags" value="${(task.tags||[]).join(',')}" />
+      <button type="submit">Salvar</button>
+    `;
+    form.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const data = {
+        title: form.elements['title'].value,
+        description: form.elements['description'].value,
+        status: form.elements['status'].value,
+        priority: form.elements['priority'].value,
+        tags: form.elements['tags'].value ? form.elements['tags'].value.split(',').map(s=>s.trim()).filter(Boolean) : []
+      };
+      await updateTask(task.id,data);
+      await refresh();
+      const updated = await fetchTask(task.id);
+      await renderTaskDetail(updated);
+    });
+    detailBody.appendChild(form);
+  }
+
+  // === HANDLERS ===
+  document.getElementById('createTaskForm').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = e.target;
+    const data = {
+      title: f.title.value.trim(),
+      description: f.description.value.trim(),
+      priority: f.priority.value,
+      tags: f.tags.value ? f.tags.value.split(',').map(s=>s.trim()).filter(Boolean) : []
+    };
+    if(!data.title) return alert('title é obrigatório');
+    await createTask(data);
+    f.reset();
+    await refresh();
+  });
+
+  document.getElementById('btnFilter').addEventListener('click', handleFilterChange);
+  document.getElementById('btnClear').addEventListener('click', async ()=>{document.getElementById('filterStatus').value='';document.getElementById('filterPriority').value='';document.getElementById('filterTag').value='';await refresh();});
+
+  async function handleFilterChange(){
+    const status = document.getElementById('filterStatus').value;
+    const priority = document.getElementById('filterPriority').value;
+    const tag = document.getElementById('filterTag').value.trim();
+    const tasks = await getTasks({status: status||undefined, priority: priority||undefined, tag: tag||undefined});
+    renderTaskList(tasks);
+  }
+
+  // === INIT ===
+  async function refresh(){
+    const tasks = await getTasks();
+    renderTaskList(tasks);
+  }
+
+  (async ()=>{ await refresh(); })();
+  </script>
+</body>
+</html>
